@@ -1,72 +1,105 @@
 import os
-import pandas
-import scapy.all as scapy
-import mmap
+import re
+import pandas as pd
+from scapy.layers.l2 import ARP, Ether  # Düzeltilmiş import
+from scapy.sendrecv import srp  # Düzeltilmiş import
 import socket
 import subprocess
-
-from numpy.f2py.crackfortran import verbose
 from tabulate import tabulate
 
+
 def get_local_network():
+    try:
+        # Windows ve Unix sistemleri için komut seçimi
+        command = "ipconfig" if os.name == "nt" else "ifconfig"
+        encoding = "cp850" if os.name == "nt" else "utf-8"
 
-    result = subprocess.check_output("ipconfig" if os.name == "nt" else "ifconfig", shell=True).decode()
-    lines = result.strip("\n")
+        result = subprocess.check_output(command, shell=True).decode(encoding, errors="ignore")
 
-    for line in lines:
-        if "IPv4 Address" in line or "inet" in line:
-            ip = line.strip(":")[-1].strip() if os.name == "nt" else line.strip()[1]
-            if ip.startswith("192.") or ip.startswith("10.") or ip.startswith("172."):
-                return ".".join(ip.split(".")[:-1]) + ".0/24"
+        # IP adreslerini yakalamak için regex
+        if os.name == "nt":
+            ip_pattern = re.compile(r"IPv4 Address.*?: (\d+\.\d+\.\d+\.\d+)")
+        else:
+            ip_pattern = re.compile(r"inet (\d+\.\d+\.\d+\.\d+)")
+
+        matches = ip_pattern.findall(result)
+
+        for ip in matches:
+            if ip.startswith(("192.", "10.", "172.")):
+                network = f"{'.'.join(ip.split('.')[:3])}.0/24"
+                return network
+
+    except Exception as e:
+        print(f"Hata oluştu: {e}")
 
     return None
 
 
 def scan_network(network):
-    arp_request = scapy.ARP(pdst=network)
-    broadcast = scapy.Ether(dst="ff:ff:ff:ff:ff:ff")
-    arp_packet = broadcast / arp_request
-    answered = scapy.srp(arp_packet, timeout=2, verbose=False)[0]
+    try:
+        # ARP taraması yapılıyor
+        arp_request = ARP(pdst=network)
+        broadcast = Ether(dst="ff:ff:ff:ff:ff:ff")
+        arp_packet = broadcast / arp_request
 
-    devices = []
+        print("Ağ taranıyor, lütfen bekleyin...")
+        answered, _ = srp(arp_packet, timeout=3, verbose=False)
 
-    for sent, received in answered:
-        devices.append({"IP": received.psrc, "MAC": received.hwsrc})
+        devices = []
+        for sent, received in answered:
+            devices.append({
+                "IP": received.psrc,
+                "MAC": received.hwsrc
+            })
 
-    return devices
+        return devices
+
+    except Exception as e:
+        print(f"Tarama sırasında hata oluştu: {e}")
+        return []
 
 
 def scan_ports(ip):
     open_ports = []
-    for port in [22,80,443,445,3389]:
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.settimeout(1)
-        if sock.connect_ex((ip,port)) == 0:
-            open_ports.append(port)
+    common_ports = [20, 21, 22, 23, 25, 53, 80, 110, 143, 443, 445, 3389]
 
-        sock.close()
+    for port in common_ports:
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(0.5)
+            result = sock.connect_ex((ip, port))
+            if result == 0:
+                open_ports.append(port)
+            sock.close()
+        except:
+            pass
 
-    return open_ports
+    return ", ".join(map(str, open_ports)) if open_ports else "Yok"
 
 
 def main():
+    # Yerel ağı tespit et
     network = get_local_network()
     if not network:
-        print("Ağ bulunamadı!")
+        print("Ağ tespit edilemedi!")
         return
 
     print(f"Taranan Ağ: {network}")
+
+    # Ağdaki cihazları tara
     devices = scan_network(network)
+    if not devices:
+        print("Hiçbir cihaz bulunamadı!")
+        return
 
+    # Her cihaz için port taraması yap
     for device in devices:
-        device["Open Ports"] = scan_ports(device["IP"])
+        device["Açık Portlar"] = scan_ports(device["IP"])
 
+    # Sonuçları göster
     print("\nAğdaki Cihazlar:")
     print(tabulate(devices, headers="keys", tablefmt="grid"))
 
 
 if __name__ == "__main__":
     main()
-
-
-
