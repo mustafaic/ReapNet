@@ -1,8 +1,8 @@
 import os
 import re
 import pandas as pd
-from scapy.layers.l2 import ARP, Ether  # Düzeltilmiş import
-from scapy.sendrecv import srp  # Düzeltilmiş import
+from scapy.layers.l2 import ARP, Ether
+from scapy.sendrecv import srp
 import socket
 import subprocess
 from tabulate import tabulate
@@ -37,7 +37,7 @@ def get_local_network():
 
 def scan_network(network):
     try:
-        # ARP taraması yapılıyor
+        # ARP taraması
         arp_request = ARP(pdst=network)
         broadcast = Ether(dst="ff:ff:ff:ff:ff:ff")
         arp_packet = broadcast / arp_request
@@ -78,7 +78,7 @@ def scan_ports(ip):
 
 
 def main():
-    # Yerel ağı tespit et
+    # Yerel ağ tespiti
     network = get_local_network()
     if not network:
         print("Ağ tespit edilemedi!")
@@ -96,7 +96,6 @@ def main():
     for device in devices:
         device["Açık Portlar"] = scan_ports(device["IP"])
 
-    # Sonuçları göster
     print("\nAğdaki Cihazlar:")
     print(tabulate(devices, headers="keys", tablefmt="grid"))
 
